@@ -5,8 +5,9 @@ import {
   MapPin, Phone, Mail, Home, Calendar, MessageSquare, Key, Sparkles,
   Building2, Star, Clock, Users, TrendingUp, Filter, Search, Eye,
   AlertCircle, BarChart3, Target, Zap, Shield, FileText, Activity,
-  Flame, Globe, Layers, Settings, Bell, LogOut, Plus, Edit, Trash2
+  Flame, Globe, Layers, Settings, Bell, LogOut, Plus, Edit, Trash2, Database, CheckCircle2, XCircle
 } from 'lucide-react';
+import { supabase, leadsApi } from './lib/supabase';
 
 // ============ IMAGES ============
 const IMAGES = {
@@ -38,7 +39,7 @@ interface Lead {
   notes: string[];
 }
 
-// ============ DONNÉES ============
+// ============ DONNÉES DE FALLBACK ============
 const sampleLeads: Lead[] = [
   {
     id: 1, prenom: 'Marie', nom: 'Dubois', telephone: '06 12 34 56 78', email: 'marie.dubois@email.com',
@@ -75,12 +76,151 @@ const sampleLeads: Lead[] = [
 // ============ APP PRINCIPAL ============
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('home');
-  const [leads, setLeads] = useState<Lead[]>(sampleLeads);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [supabaseConnected, setSupabaseConnected] = useState(false);
+
+  // Charger les leads depuis Supabase au démarrage
+  useEffect(() => {
+    loadLeads();
+  }, []);
+
+  const loadLeads = async () => {
+    try {
+      setLoading(true);
+      // Vérifier si Supabase est configuré
+      const isConfigured = import.meta.env.VITE_SUPABASE_URL && 
+                          import.meta.env.VITE_SUPABASE_URL !== 'https://YOUR_PROJECT_ID.supabase.co';
+      
+      if (isConfigured) {
+        const data = await leadsApi.getAll();
+        // Convertir les données de Supabase au format de l'application
+        const formattedLeads: Lead[] = data.map((lead: any) => ({
+          id: lead.id,
+          prenom: lead.prenom,
+          nom: lead.nom,
+          telephone: lead.telephone,
+          email: lead.email,
+          ville: lead.ville,
+          nombreBiens: lead.nombre_biens,
+          plateformes: lead.plateformes || [],
+          situation: lead.situation,
+          motivation: lead.motivation,
+          score: lead.score,
+          statut: lead.statut,
+          source: lead.source,
+          date: lead.date,
+          notes: lead.notes || [],
+        }));
+        setLeads(formattedLeads);
+        setSupabaseConnected(true);
+      } else {
+        // Fallback sur les données locales
+        setLeads(sampleLeads);
+        setSupabaseConnected(false);
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement des leads:', error);
+      // Fallback sur les données locales en cas d'erreur
+      setLeads(sampleLeads);
+      setSupabaseConnected(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Ajouter un nouveau lead
+  const addLead = async (newLead: Omit<Lead, 'id'>) => {
+    try {
+      const isConfigured = import.meta.env.VITE_SUPABASE_URL && 
+                          import.meta.env.VITE_SUPABASE_URL !== 'https://YOUR_PROJECT_ID.supabase.co';
+      
+      if (isConfigured) {
+        // Sauvegarder dans Supabase
+        const savedLead = await leadsApi.create({
+          prenom: newLead.prenom,
+          nom: newLead.nom,
+          telephone: newLead.telephone,
+          email: newLead.email,
+          ville: newLead.ville,
+          nombre_biens: newLead.nombreBiens,
+          plateformes: newLead.plateformes,
+          situation: newLead.situation,
+          motivation: newLead.motivation,
+          score: newLead.score,
+          statut: newLead.statut,
+          source: newLead.source,
+          date: newLead.date,
+          notes: newLead.notes,
+        });
+        
+        // Ajouter le lead à l'état local avec l'ID de Supabase
+        const leadWithId: Lead = {
+          ...newLead,
+          id: savedLead.id,
+        };
+        setLeads([leadWithId, ...leads]);
+      } else {
+        // Fallback : ajouter localement
+        const leadWithId: Lead = {
+          ...newLead,
+          id: leads.length > 0 ? Math.max(...leads.map(l => l.id)) + 1 : 1,
+        };
+        setLeads([leadWithId, ...leads]);
+      }
+    } catch (error) {
+      console.error('Erreur lors de l\'ajout du lead:', error);
+      // Fallback : ajouter localement en cas d'erreur
+      const leadWithId: Lead = {
+        ...newLead,
+        id: leads.length > 0 ? Math.max(...leads.map(l => l.id)) + 1 : 1,
+      };
+      setLeads([leadWithId, ...leads]);
+    }
+  };
+
+  // Mettre à jour un lead
+  const updateLead = async (id: number, updates: Partial<Lead>) => {
+    try {
+      const isConfigured = import.meta.env.VITE_SUPABASE_URL && 
+                          import.meta.env.VITE_SUPABASE_URL !== 'https://YOUR_PROJECT_ID.supabase.co';
+      
+      if (isConfigured) {
+        // Convertir les noms de champs pour Supabase
+        const supabaseUpdates: any = { ...updates };
+        if (updates.nombreBiens !== undefined) {
+          supabaseUpdates.nombre_biens = updates.nombreBiens;
+          delete supabaseUpdates.nombreBiens;
+        }
+        await leadsApi.update(id, supabaseUpdates);
+      }
+      
+      // Mettre à jour l'état local
+      setLeads(leads.map(l => l.id === id ? { ...l, ...updates } : l));
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour du lead:', error);
+      // Mettre à jour localement même en cas d'erreur
+      setLeads(leads.map(l => l.id === id ? { ...l, ...updates } : l));
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#faf9f7] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-full bg-[#1a1a1a] flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <span className="font-serif text-[#f5f3ef] text-2xl font-semibold">K</span>
+          </div>
+          <p className="text-[#8a8578]">Chargement...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
-      {currentPage === 'home' && <HomePage onNavigate={setCurrentPage} leads={leads} setLeads={setLeads} />}
-      {currentPage === 'admin' && <AdminPage leads={leads} setLeads={setLeads} onNavigate={setCurrentPage} />}
+      {currentPage === 'home' && <HomePage onNavigate={setCurrentPage} leads={leads} addLead={addLead} supabaseConnected={supabaseConnected} />}
+      {currentPage === 'admin' && <AdminPage leads={leads} updateLead={updateLead} onNavigate={setCurrentPage} supabaseConnected={supabaseConnected} onRefresh={loadLeads} />}
     </>
   );
 }
@@ -164,7 +304,7 @@ function Navigation({ onNavigate }: { onNavigate: (page: Page) => void }) {
 }
 
 // ============ HOME PAGE ============
-function HomePage({ onNavigate, leads, setLeads }: { onNavigate: (page: Page) => void; leads: Lead[]; setLeads: (l: Lead[]) => void }) {
+function HomePage({ onNavigate, leads, addLead, supabaseConnected }: { onNavigate: (page: Page) => void; leads: Lead[]; addLead: (newLead: Omit<Lead, 'id'>) => Promise<void>; supabaseConnected: boolean }) {
   return (
     <div className="min-h-screen bg-[#faf9f7]">
       <Navigation onNavigate={onNavigate} />
@@ -519,7 +659,7 @@ function HomePage({ onNavigate, leads, setLeads }: { onNavigate: (page: Page) =>
       </section>
 
       {/* DIAGNOSTIC */}
-      <DiagnosticSection leads={leads} setLeads={setLeads} />
+      <DiagnosticSection leads={leads} addLead={addLead} supabaseConnected={supabaseConnected} />
 
       {/* FAQ */}
       <section id="faq" className="py-24 md:py-32 bg-[#f5f3ef]">
@@ -638,7 +778,7 @@ function FAQItem({ question, answer }: { question: string; answer: string }) {
 }
 
 // ============ DIAGNOSTIC SECTION ============
-function DiagnosticSection({ leads, setLeads }: { leads: Lead[]; setLeads: (l: Lead[]) => void }) {
+function DiagnosticSection({ leads, addLead, supabaseConnected }: { leads: Lead[]; addLead: (newLead: Omit<Lead, 'id'>) => Promise<void>; supabaseConnected: boolean }) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [showForm, setShowForm] = useState(false);
@@ -685,11 +825,10 @@ function DiagnosticSection({ leads, setLeads }: { leads: Lead[]; setLeads: (l: L
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const score = calculateScore();
-    const newLead: Lead = {
-      id: leads.length + 1,
+    const newLead: Omit<Lead, 'id'> = {
       prenom: formData.prenom,
       nom: formData.nom,
       telephone: formData.telephone,
@@ -705,7 +844,7 @@ function DiagnosticSection({ leads, setLeads }: { leads: Lead[]; setLeads: (l: L
       date: new Date().toISOString().split('T')[0],
       notes: [],
     };
-    setLeads([...leads, newLead]);
+    await addLead(newLead);
     setSubmitted(true);
     setShowResult(true);
   };
@@ -781,9 +920,26 @@ function DiagnosticSection({ leads, setLeads }: { leads: Lead[]; setLeads: (l: L
             animate={{ opacity: 1, y: 0 }}
             className="bg-[#f5f3ef] rounded-2xl p-8 md:p-12"
           >
-            <h3 className="font-serif text-2xl md:text-3xl text-[#1a1a1a] mb-6">
+            <h3 className="font-serif text-2xl md:text-3xl text-[#1a1a1a] mb-2">
               Recevez votre analyse personnalisée
             </h3>
+            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-6 ${
+              supabaseConnected 
+                ? 'bg-green-500/10 text-green-700 border border-green-500/20' 
+                : 'bg-amber-500/10 text-amber-700 border border-amber-500/20'
+            }`}>
+              {supabaseConnected ? (
+                <>
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>Vos données seront sauvegardées</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-3 h-3" />
+                  <span>Mode démo - Données non sauvegardées</span>
+                </>
+              )}
+            </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid md:grid-cols-2 gap-4">
                 <input
@@ -888,7 +1044,7 @@ function DiagnosticSection({ leads, setLeads }: { leads: Lead[]; setLeads: (l: L
 }
 
 // ============ ADMIN PAGE ============
-function AdminPage({ leads, setLeads, onNavigate }: { leads: Lead[]; setLeads: (l: Lead[]) => void; onNavigate: (page: Page) => void }) {
+function AdminPage({ leads, updateLead, onNavigate, supabaseConnected, onRefresh }: { leads: Lead[]; updateLead: (id: number, updates: Partial<Lead>) => Promise<void>; onNavigate: (page: Page) => void; supabaseConnected: boolean; onRefresh: () => Promise<void> }) {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [filterStatut, setFilterStatut] = useState('all');
   const [filterScore, setFilterScore] = useState('all');
@@ -909,8 +1065,8 @@ function AdminPage({ leads, setLeads, onNavigate }: { leads: Lead[]; setLeads: (
   const rdvLeads = leads.filter(l => l.statut === 'Rendez-vous').length;
   const clients = leads.filter(l => l.statut === 'Client').length;
 
-  const updateLeadStatus = (id: number, newStatus: string) => {
-    setLeads(leads.map(l => l.id === id ? { ...l, statut: newStatus } : l));
+  const updateLeadStatus = async (id: number, newStatus: string) => {
+    await updateLead(id, { statut: newStatus });
     if (selectedLead && selectedLead.id === id) {
       setSelectedLead({ ...selectedLead, statut: newStatus });
     }
@@ -930,8 +1086,32 @@ function AdminPage({ leads, setLeads, onNavigate }: { leads: Lead[]; setLeads: (
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <button className="p-2 rounded-lg hover:bg-white/[0.04] text-white/40 hover:text-white/60 transition-colors">
-              <Bell className="w-4 h-4" />
+            {/* Indicateur de connexion Supabase */}
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
+              supabaseConnected 
+                ? 'bg-green-500/10 text-green-400 border border-green-500/20' 
+                : 'bg-red-500/10 text-red-400 border border-red-500/20'
+            }`}>
+              {supabaseConnected ? (
+                <>
+                  <Database className="w-3 h-3" />
+                  <span>Supabase connecté</span>
+                </>
+              ) : (
+                <>
+                  <Database className="w-3 h-3" />
+                  <span>Mode local</span>
+                </>
+              )}
+            </div>
+            <button
+              onClick={onRefresh}
+              className="p-2 rounded-lg hover:bg-white/[0.04] text-white/40 hover:text-white/60 transition-colors"
+              title="Rafraîchir les données"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
             </button>
             <button
               onClick={() => onNavigate('home')}
